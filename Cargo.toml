@@ -1,0 +1,27 @@
+[package]
+name = "ct-service-v2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+prism-common = { git = "https://github.com/deltadevsde/prism", branch = "main" }
+prism-client = { git = "https://github.com/deltadevsde/prism", branch = "main" }
+prism-keys = { git = "https://github.com/deltadevsde/prism", branch = "main" }
+keystore-rs = { version = "0.3" }
+tokio = { version = "1.16.1", features = ["full"] }
+log = "0.4.7"
+pretty_env_logger = "0.5.0"
+anyhow = "1.0.95"
+ctclient = "0.4.5"
+backoff = "0.4.0"
+dashmap = "6.1.0"
+reqwest = "0.12.12"
+serde = { version = "1.0.97", features = ["derive"] }
+serde_with = { version = "3.11.0", features = ["base64"] }
+serde_json = "1.0.40"
+serde_urlencoded = "0.6.1"
+base64 = "0.21.0"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3.31"
