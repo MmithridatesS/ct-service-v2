@@ -123,20 +123,13 @@ async fn monitor_log(log: log_list::Log, account: Account, interval: tokio::time
                 info!("requesting to add data for {}", &account.id());
                 if !head.root_hash.eq(&last_tree_head) {
                     last_tree_head = head.root_hash;
-                    let relevant_head_signature_slice = &head.signature[4..];
-                    let signature = Signature::from_algorithm_and_der(
-                        Secp256r1,
-                        relevant_head_signature_slice,
-                    )?;
 
-                    let _sb = SignatureBundle {
-                        signature, 
-                        verifying_key: log_vk.clone()
-                    };
+                    let data = log_list::SignedTreeHead::from_ctclient_sth(head.clone());
+                    let bytes = data.to_bytes();
 
                     let request = prism_client::PrismClientRequest::SetData {
                         account: Box::new(account.clone()),
-                        data: head.root_hash.to_vec(),
+                        data: bytes,
                     };
 
                     let (otx, orx) = oneshot::channel();

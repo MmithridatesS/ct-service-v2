@@ -25,3 +25,4 @@ serde_urlencoded = "0.6.1"
 base64 = "0.21.0"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3.31"
+ts-rs = "10.1.0"

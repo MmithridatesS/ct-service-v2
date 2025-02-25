@@ -94,3 +94,30 @@ pub struct TreeHead {
     pub sha256_root_hash: Vec<u8>,
     pub tree_size: i64,
 }
+
+#[repr(C)]
+pub struct SignedTreeHead {
+    pub tree_size: u64,
+    pub timestamp: u64,
+    pub root_hash: [u8; 32],
+    pub signature: Vec<u8>,
+}
+
+impl SignedTreeHead {
+    pub fn from_ctclient_sth(sth: ctclient::SignedTreeHead) -> Self {
+        Self {
+            tree_size: sth.tree_size,
+            timestamp: sth.timestamp,
+            root_hash: sth.root_hash,
+            signature: sth.signature,
+        }
+    }
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(64 + 32 + 16);
+        bytes.extend(&self.tree_size.to_le_bytes());
+        bytes.extend(&self.timestamp.to_le_bytes());
+        bytes.extend(&self.root_hash);
+        bytes.extend(&self.signature);
+        bytes
+    }
+}
