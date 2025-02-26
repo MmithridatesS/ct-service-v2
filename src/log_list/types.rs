@@ -95,7 +95,7 @@ pub struct TreeHead {
     pub tree_size: i64,
 }
 
-#[repr(C)]
+#[derive(Serialize, Deserialize)]
 pub struct SignedTreeHead {
     pub tree_size: u64,
     pub timestamp: u64,
@@ -119,5 +119,8 @@ impl SignedTreeHead {
         bytes.extend(&self.root_hash);
         bytes.extend(&self.signature);
         bytes
+    }
+    pub fn serialize_json(&self) -> Vec<u8> {
+        serde_json::to_vec(self).unwrap()
     }
 }
