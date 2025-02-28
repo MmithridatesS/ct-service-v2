@@ -14,6 +14,7 @@ use tracing_subscriber::FmtSubscriber;
 use std::sync::Arc;
 
 const SERVICE_ID: &str = "PrivaCT";
+
 #[tokio::main]
 async fn main() {
     let subscriber = FmtSubscriber::builder()
@@ -27,8 +28,8 @@ async fn main() {
     let signing_key = Box::leak(Box::new(Ed25519(Box::new(key))));
     let (tx, rx) = mpsc::channel(1024);
 
-    let scheduler = Arc::new(scheduler::Scheduler::new(60, 15 * 60));
-    // running the client_handler
+    let scheduler = Arc::new(scheduler::Scheduler::new(0, 60));
+    // running the client_handle
     let prism_client_runner = tokio::spawn(prism_client::run_prism_client("http://127.0.0.1:50524", rx, signing_key));
 
     //registering the service on the start-up
@@ -93,9 +94,8 @@ async fn monitor_logs(logs: Vec<log_list::Log>, tx: mpsc::Sender<(prism_client::
         let (otx, orx) = oneshot::channel();
         let _ = tx.send((account_create_request, otx)).await;
         match orx.await {
-            Ok(prism_client::PrismClientResponse::PendingTransaction { pending_transaction }) => {
-                let account_res = pending_transaction.wait().await;
-                if account_res.is_ok() {
+            Ok(prism_client::PrismClientResponse::Account(account_res)) => {
+                if account_res.is_some() {
                     info!("Account with ID: {} is created.", account_res.clone().unwrap().id())
                 }
                 join_handles.push(tokio::spawn(monitor_log(log.clone().clone(),
@@ -133,7 +133,6 @@ async fn monitor_log(log: log_list::Log, account: Account, interval: tokio::time
 
                     let data = log_list::SignedTreeHead::from_ctclient_sth(head.clone());
                     let bytes = data.serialize_json();
-
                     let request = prism_client::PrismClientRequest::SetData {
                         account: Box::new(account.clone()),
                         data: bytes,
@@ -143,7 +142,7 @@ async fn monitor_log(log: log_list::Log, account: Account, interval: tokio::time
                     let _ = tx.send((request, otx)).await;
                     match orx.await{
                         Ok(prism_client::PrismClientResponse::PendingDataAddition) => {},
-                        _ => warn!("unexpected res")
+                        _ => warn!("Unexpected client response")
                     }
 
                 }
