@@ -1,9 +1,9 @@
 mod log_list;
+mod scheduler;
 mod prism_client;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::future::join_all;
 use ctclient::{CTClient, SthResult};
-use prism_keys::{CryptoAlgorithm::Secp256r1, VerifyingKey};
 use anyhow::{Result, anyhow};
 use prism_client::Account;
 use keystore_rs::{KeyChain, KeyStore};
@@ -27,6 +27,7 @@ async fn main() {
     let signing_key = Box::leak(Box::new(Ed25519(Box::new(key))));
     let (tx, rx) = mpsc::channel(1024);
 
+    let scheduler = Arc::new(scheduler::Scheduler::new(60, 15 * 60));
     // running the client_handler
     let prism_client_runner = tokio::spawn(prism_client::run_prism_client("http://127.0.0.1:50524", rx, signing_key));
 
@@ -35,7 +36,7 @@ async fn main() {
 
     let cached_logs = log_list::service::CachingLogListService::new(std::time::Duration::from_secs(60 * 60 * 24));
 
-    let log_monitor = tokio::spawn(monitor_all_ops(cached_logs, tx.clone()));
+    let log_monitor = tokio::spawn(monitor_all_ops(cached_logs, tx.clone(), scheduler));
 
     tokio::select! {
         res_client = prism_client_runner => {
@@ -62,23 +63,20 @@ async fn main() {
 }
 
 
-async fn monitor_all_ops(cached_logs: log_list::service::CachingLogListService, tx: mpsc::Sender<(prism_client::PrismClientRequest, oneshot::Sender<prism_client::PrismClientResponse>)>) -> Result<()> {
+async fn monitor_all_ops(cached_logs: log_list::service::CachingLogListService, tx: mpsc::Sender<(prism_client::PrismClientRequest, oneshot::Sender<prism_client::PrismClientResponse>)>, scheduler: Arc<scheduler::Scheduler>) -> Result<()> {
     let operator_list = cached_logs.get_all_operator_names().await.map_err(|_| anyhow!("Could not fetch the operator names"))?;
     let mut jh = vec![];
-    let operator_scheduling_interval_secs: usize = 15 * 60;
-    let mut id = 0;
     for operator in operator_list {
-        let operator_offset: usize = operator_scheduling_interval_secs * id;
-        tokio::time::sleep(tokio::time::Duration::from_secs(operator_offset.try_into().unwrap_or(0))).await;
+        let scheduler = Arc::clone(&scheduler);
         info!("Updating Logs for operator {} started.", operator);
         let logs = cached_logs.get_all_by_operator(&operator).await.unwrap();
-        jh.push(tokio::spawn(monitor_logs(logs, operator_offset, tx.clone())));
-        id += 1;
+        jh.push(tokio::spawn(monitor_logs(logs, tx.clone(), scheduler)));
     }
     join_all(jh).await;
     Ok(())
 }
-async fn monitor_logs(logs: Vec<log_list::Log>, offset: usize, tx: mpsc::Sender<(prism_client::PrismClientRequest, oneshot::Sender<prism_client::PrismClientResponse>)>) -> Result<()> {
+
+async fn monitor_logs(logs: Vec<log_list::Log>, tx: mpsc::Sender<(prism_client::PrismClientRequest, oneshot::Sender<prism_client::PrismClientResponse>)>, scheduler: Arc<scheduler::Scheduler>) -> Result<()> {
     let potentially_usable_logs = logs.iter()
         .filter(|log| matches!(log.state, Some(log_list::LogState::Usable { .. })) || 
                       matches!(log.state, Some(log_list::LogState::Readonly { .. })) || 
@@ -89,9 +87,8 @@ async fn monitor_logs(logs: Vec<log_list::Log>, offset: usize, tx: mpsc::Sender<
         return Ok(());
     }
     info!("found {} potentially usable logs", potentially_usable_logs.len());
-    for (id, log) in potentially_usable_logs.iter().enumerate() {
-        let start_offset = offset + id * 60;
-        tokio::time::sleep(tokio::time::Duration::from_secs(start_offset.try_into().unwrap_or(0))).await;
+    for log in potentially_usable_logs.iter() {
+        tokio::time::sleep(scheduler.get_offset()).await;
         let account_create_request = prism_client::PrismClientRequest::CreateAccount{account_id: log.log_id.clone(), service_id: SERVICE_ID.to_string()};
         let (otx, orx) = oneshot::channel();
         let _ = tx.send((account_create_request, otx)).await;
@@ -103,7 +100,7 @@ async fn monitor_logs(logs: Vec<log_list::Log>, offset: usize, tx: mpsc::Sender<
                 }
                 join_handles.push(tokio::spawn(monitor_log(log.clone().clone(),
                     account_res.unwrap(),
-                    tokio::time::Duration::from_secs(60),
+                    scheduler.get_interval(),
                     tx.clone())))
             },
             _ => {warn!("Did not get the required response")}
